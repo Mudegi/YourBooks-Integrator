@@ -20,6 +20,7 @@ export const api = {
   fiscalizeCreditNote: (id: string) => request<any>(`/credit-notes/${id}/fiscalize`, { method: 'POST' }),
   listStock: (direction: 'IN' | 'OUT') => request<{ movements: any[] }>(`/stock?direction=${direction}`),
   reportStock: (id: string) => request<any>(`/stock/${id}/report`, { method: 'POST' }),
+  efrisLookup: (name: string, qs = '') => request<{ data: any }>(`/efris/${name}${qs}`),
   dashboard: () => request<any>('/dashboard/stats'),
   lookup: (name: string) => request<any>(`/efris/${name}`),
 };

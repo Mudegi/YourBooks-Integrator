@@ -145,6 +145,21 @@ router.post('/stock/:id/report', async (req, res) => {
   }
 });
 
+// ---- EFRIS read-only lookups (proxied through the middleware) ----------------
+// Forwards the query string (e.g. ?excise_name=beer, ?pageNo=1) to the middleware.
+const EFRIS_LOOKUPS = ['registration-details', 'goods', 'excise-duty', 'units-of-measure', 'commodity-categories'];
+EFRIS_LOOKUPS.forEach((name) => {
+  router.get(`/efris/${name}`, async (req, res) => {
+    try {
+      const qs = req.originalUrl.includes('?') ? '?' + req.originalUrl.split('?').slice(1).join('?') : '';
+      const data = await efrisGet(name + qs);
+      res.json({ success: true, data });
+    } catch (e: any) {
+      res.status(400).json({ success: false, error: e.message });
+    }
+  });
+});
+
 // ---- Dashboard --------------------------------------------------------------
 router.get('/dashboard/stats', async (_req, res) => {
   const [total, pending, fiscalized, failed] = await Promise.all([
