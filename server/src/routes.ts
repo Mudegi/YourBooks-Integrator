@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { prisma, getConfig } from './prisma';
-import { submitInvoice, submitCreditNote, submitStock, efrisGet } from './efris';
+import { submitInvoice, submitCreditNote, submitStock, submitStockTransfer, efrisGet } from './efris';
 
 const router = Router();
 
@@ -147,9 +147,43 @@ router.post('/stock/:id/report', async (req, res) => {
   }
 });
 
+// ---- Ingested stock transfers (T139) ----------------------------------------
+router.get('/stock-transfers', async (_req, res) => {
+  const transfers = await prisma.ingestedStockTransfer.findMany({
+    orderBy: { receivedAt: 'desc' },
+    take: 200,
+  });
+  res.json({ transfers });
+});
+
+router.post('/stock-transfers/:id/report', async (req, res) => {
+  const t = await prisma.ingestedStockTransfer.findUnique({ where: { id: req.params.id } });
+  if (!t) return res.status(404).json({ error: 'Stock transfer not found' });
+  if (t.status === 'FISCALIZED') return res.json({ success: true, alreadyReported: true });
+
+  try {
+    const data = {
+      ...(t.payload as any),
+      sourceBranchId: t.sourceBranchId,
+      destinationBranchId: t.destinationBranchId,
+      transferTypeCode: t.transferTypeCode,
+      remarks: t.remarks,
+    };
+    const { payload, result } = await submitStockTransfer(data);
+    const ref = result.efris_reference || result.referenceNo || result.transferReferenceNo || 'EFRIS-OK';
+    await prisma.ingestedStockTransfer.update({ where: { id: t.id }, data: { status: 'FISCALIZED', efrisReference: ref, efrisError: null, reportedAt: new Date() } });
+    await prisma.efrisLog.create({ data: { kind: 'stock_transfer', reference: t.reference, success: true, request: payload as any, response: result } });
+    res.json({ success: true, reference: ref });
+  } catch (e: any) {
+    await prisma.ingestedStockTransfer.update({ where: { id: t.id }, data: { status: 'FAILED', efrisError: e.message } });
+    await prisma.efrisLog.create({ data: { kind: 'stock_transfer', reference: t.reference, success: false, request: e.request, response: e.response } });
+    res.status(400).json({ success: false, error: e.message });
+  }
+});
+
 // ---- EFRIS read-only lookups (proxied through the middleware) ----------------
 // Forwards the query string (e.g. ?excise_name=beer, ?pageNo=1) to the middleware.
-const EFRIS_LOOKUPS = ['registration-details', 'goods', 'excise-duty', 'units-of-measure', 'commodity-categories'];
+const EFRIS_LOOKUPS = ['registration-details', 'goods', 'excise-duty', 'units-of-measure', 'commodity-categories', 'branches'];
 EFRIS_LOOKUPS.forEach((name) => {
   router.get(`/efris/${name}`, async (req, res) => {
     try {

@@ -108,6 +108,30 @@ model IngestedStockMovement {
   @@index([status])
 }
 
+// Inter-branch stock transfers from the ERP via webhooks, queued for EFRIS (T139).
+model IngestedStockTransfer {
+  id                    String       @id @default(cuid())
+  sourceId              String?
+  reference             String       // transfer number
+  sourceBranchId        String?      // URA EFRIS branch id (from the ERP's linked branches)
+  destinationBranchId   String?
+  sourceBranchName      String?
+  destinationBranchName String?
+  transferTypeCode      String       @default("101")
+  remarks               String?      @db.Text
+  payload               Json
+
+  status                FiscalStatus @default(PENDING)
+  efrisReference        String?
+  efrisError            String?      @db.Text
+
+  receivedAt            DateTime     @default(now())
+  reportedAt            DateTime?
+
+  @@unique([reference])
+  @@index([status])
+}
+
 // Audit log of EFRIS submissions (request/response).
 model EfrisLog {
   id          String   @id @default(cuid())

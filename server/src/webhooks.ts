@@ -37,6 +37,8 @@ export async function handleYourBooksWebhook(req: Request, res: Response) {
       await ingestStock(data, 'IN');
     } else if (type === 'stock.decreased') {
       await ingestStock(data, 'OUT');
+    } else if (type === 'stock.transferred') {
+      await ingestStockTransfer(data);
     }
     return res.status(200).json({ received: true, type });
   } catch (e: any) {
@@ -121,5 +123,28 @@ async function ingestStock(data: any, direction: 'IN' | 'OUT') {
     where: { reference_direction: { reference: String(reference), direction } },
     update: common,
     create: { reference: String(reference), direction, status: 'PENDING', ...common },
+  });
+}
+
+async function ingestStockTransfer(data: any) {
+  const reference = data.reference || data.transferNumber || data.id;
+  if (!reference) throw new Error('stock transfer payload missing reference');
+
+  // The ERP sends the URA EFRIS branch ids (from each branch's efrisBranchId link).
+  const common = {
+    sourceId: data.sourceId || data.id || null,
+    sourceBranchId: data.sourceBranchId || data.fromBranch?.efrisBranchId || data.source_branch_id || null,
+    destinationBranchId: data.destinationBranchId || data.toBranch?.efrisBranchId || data.destination_branch_id || null,
+    sourceBranchName: data.sourceBranchName || data.fromBranch?.name || null,
+    destinationBranchName: data.destinationBranchName || data.toBranch?.name || null,
+    transferTypeCode: data.transferTypeCode || '101',
+    remarks: data.remarks || null,
+    payload: data,
+  };
+
+  await prisma.ingestedStockTransfer.upsert({
+    where: { reference: String(reference) },
+    update: common,
+    create: { reference: String(reference), status: 'PENDING', ...common },
   });
 }

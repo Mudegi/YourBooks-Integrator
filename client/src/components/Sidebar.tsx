@@ -1,22 +1,23 @@
 import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard, FileText, Package, History, Boxes, TrendingDown,
-  Receipt, ShieldCheck, ArrowRightLeft, Ruler, Layers, Settings, Plug,
+  Receipt, ShieldCheck, ArrowRightLeft, Ruler, Layers, Settings, Plug, GitBranch,
 } from 'lucide-react';
 
 const sourceItems = [
   { name: 'Invoices', icon: FileText, to: '/invoices' },
+  { name: 'Credit Notes', icon: History, to: '/credit-notes' },
   { name: 'Stock Increase', icon: Boxes, to: '/stock-increase' },
   { name: 'Stock Decrease', icon: TrendingDown, to: '/stock-decrease' },
+  { name: 'Stock Transfer', icon: ArrowRightLeft, to: '/stock-transfer' },
   { name: 'Goods & Services', icon: Package, to: '/goods' },
-  { name: 'Credit Notes', icon: History, to: '/credit-notes' },
 ];
 
 const efrisItems = [
   { name: 'Invoices', icon: Receipt, to: '/efris-invoices' },
   { name: 'Goods & Services', icon: Package, to: '/efris-goods' },
+  { name: 'Branches', icon: GitBranch, to: '/efris-branches' },
   { name: 'Excise Duties', icon: ShieldCheck, to: '/excise-duties' },
-  { name: 'Stock Transfer', icon: ArrowRightLeft, to: '/stock-transfer' },
   { name: 'Units of Measure', icon: Ruler, to: '/units-of-measure' },
   { name: 'Commodity Categories', icon: Layers, to: '/commodity-categories' },
 ];

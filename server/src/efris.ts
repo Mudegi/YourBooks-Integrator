@@ -185,6 +185,48 @@ export async function submitStock(mv: any): Promise<any> {
   return { payload: body, result };
 }
 
+/** Map a raw ERP inter-branch transfer (webhook payload) to the middleware T139 payload. */
+export function buildStockTransferPayload(t: any) {
+  return {
+    goodsStockTransfer: {
+      source_branch_id: t.sourceBranchId,
+      destination_branch_id: t.destinationBranchId,
+      transfer_type_code: t.transferTypeCode || '101',
+      remarks: t.remarks || 'Inter-branch stock transfer',
+      roll_back_if_error: '1',
+      goods_type_code: '101',
+    },
+    goodsStockTransferItem: (t.items || []).map((it: any) => ({
+      goods_code: it.sku || it.itemCode || it.goodsCode || it.goods_code,
+      measure_unit: it.unit || it.measureUnit || '101',
+      quantity: String(Math.abs(Number(it.quantity || 0))),
+      remarks: it.remarks || '',
+    })),
+  };
+}
+
+export async function submitStockTransfer(t: any): Promise<any> {
+  if (!t.sourceBranchId || !t.destinationBranchId) {
+    throw new Error('Source/destination EFRIS branch IDs are missing. Link branches in the ERP (Settings → Branches → link to EFRIS) so the transfer carries valid branch IDs.');
+  }
+  const { baseUrl, apiKey } = await getConnection();
+  const body = buildStockTransferPayload(t);
+  const res = await fetch(`${baseUrl}/stock-transfer`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
+    body: JSON.stringify(body),
+  });
+  const result = await res.json().catch(() => ({}));
+  if (!res.ok || result?.success === false) {
+    const detail = result?.detail || result?.message || result?.error || `Stock transfer failed (HTTP ${res.status})`;
+    const err: any = new Error(detail);
+    err.request = body;
+    err.response = result;
+    throw err;
+  }
+  return { payload: body, result };
+}
+
 /** Generic GET lookup against the middleware (registration-details, branches, units, etc.). */
 export async function efrisGet(path: string): Promise<any> {
   const { baseUrl, apiKey } = await getConnection();
