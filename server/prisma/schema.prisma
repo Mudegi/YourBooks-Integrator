@@ -1,0 +1,123 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// Singleton configuration for the integrator (one row).
+model IntegratorConfig {
+  id              Int      @id @default(1)
+  // EFRIS middleware
+  middlewareUrl   String?  @db.Text // e.g. https://efris.example.com  (we append /api/external/efris)
+  efrisApiKey     String?  @db.Text
+  // Shared secret with the ERP webhook endpoint (verifies X-Webhook-Signature)
+  webhookSecret   String?  @db.Text
+  // Display
+  companyName     String?
+  updatedAt       DateTime @updatedAt
+}
+
+enum FiscalStatus {
+  PENDING
+  FISCALIZED
+  FAILED
+}
+
+// Documents pulled from the ERP via webhooks, queued for fiscalization.
+model IngestedInvoice {
+  id              String       @id @default(cuid())
+  sourceId        String?      // ERP invoice id
+  invoiceNumber   String
+  customerName    String?
+  customerTin     String?
+  currency        String       @default("UGX")
+  total           Decimal      @default(0) @db.Decimal(19, 4)
+  invoiceDate     String?      // YYYY-MM-DD as sent by the ERP
+  payload         Json         // full ERP webhook payload (source of truth for fiscalization)
+
+  status          FiscalStatus @default(PENDING)
+  fdn             String?
+  verificationCode String?
+  qrCode          String?      @db.Text
+  efrisError      String?      @db.Text
+
+  receivedAt      DateTime     @default(now())
+  fiscalizedAt    DateTime?
+
+  @@unique([invoiceNumber])
+  @@index([status])
+}
+
+// Credit notes pulled from the ERP via webhooks, queued for fiscalization (T110).
+model IngestedCreditNote {
+  id                    String       @id @default(cuid())
+  sourceId              String?      // ERP credit note id
+  creditNoteNumber      String
+  originalInvoiceNumber String?      // links to an IngestedInvoice to recover the FDN
+  reason                String?
+  reasonCode            String?      // 101..105
+  customerName          String?
+  customerTin           String?
+  currency              String       @default("UGX")
+  total                 Decimal      @default(0) @db.Decimal(19, 4)
+  creditDate            String?
+  payload               Json
+
+  status                FiscalStatus @default(PENDING)
+  fdn                   String?
+  verificationCode      String?
+  qrCode                String?      @db.Text
+  efrisError            String?      @db.Text
+
+  receivedAt            DateTime     @default(now())
+  fiscalizedAt          DateTime?
+
+  @@unique([creditNoteNumber])
+  @@index([status])
+}
+
+enum StockDirection {
+  IN
+  OUT
+}
+
+// Stock movements from the ERP via webhooks, queued for EFRIS (T131 in/out).
+model IngestedStockMovement {
+  id          String         @id @default(cuid())
+  sourceId    String?        // ERP GRN / adjustment id
+  reference   String         // GRN / adjustment number
+  direction   StockDirection
+  // IN: stockInType (101 manufacture, 102 purchase…). OUT: adjustType (101 expired…).
+  movementType String?
+  supplierTin  String?
+  supplierName String?
+  remarks      String?       @db.Text
+  payload      Json
+
+  status       FiscalStatus  @default(PENDING)
+  efrisReference String?
+  efrisError     String?     @db.Text
+
+  receivedAt   DateTime      @default(now())
+  reportedAt   DateTime?
+
+  @@unique([reference, direction])
+  @@index([status])
+}
+
+// Audit log of EFRIS submissions (request/response).
+model EfrisLog {
+  id          String   @id @default(cuid())
+  kind        String   // invoice | credit_note | stock | lookup
+  reference   String?  // invoice number / doc reference
+  success     Boolean  @default(false)
+  request     Json?
+  response    Json?
+  createdAt   DateTime @default(now())
+
+  @@index([kind])
+  @@index([createdAt])
+}

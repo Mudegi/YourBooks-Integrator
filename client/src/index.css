@@ -1,0 +1,26 @@
+@import "tailwindcss";
+
+:root {
+  --neo-bg: #eef2f7;
+  --neo-text: #1f2937;
+  --neo-text-secondary: #64748b;
+  --neo-shadow-light: rgba(255, 255, 255, 0.9);
+  --neo-shadow-dark: rgba(163, 177, 198, 0.55);
+  --primary: #2563eb;
+}
+
+html, body, #root { height: 100%; }
+body {
+  margin: 0;
+  background: var(--neo-bg);
+  color: var(--neo-text);
+  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* Neomorphic helpers (match the YourBooks look) */
+.neo { background: var(--neo-bg); }
+.neo-outset { box-shadow: -6px -6px 12px var(--neo-shadow-light), 6px 6px 12px var(--neo-shadow-dark); }
+.neo-outset-sm { box-shadow: -3px -3px 6px var(--neo-shadow-light), 3px 3px 6px var(--neo-shadow-dark); }
+.neo-inset { box-shadow: inset -6px -6px 12px var(--neo-shadow-light), inset 6px 6px 12px var(--neo-shadow-dark); }
+.neo-inset-sm { box-shadow: inset -3px -3px 6px var(--neo-shadow-light), inset 3px 3px 6px var(--neo-shadow-dark); }
+.convex { background: linear-gradient(145deg, #f4f7fb, #d9dee6); }
