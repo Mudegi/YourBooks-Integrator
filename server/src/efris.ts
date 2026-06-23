@@ -32,6 +32,10 @@ export function buildInvoicePayload(invoice: any) {
     };
     const commodity = it.commodityCode || it.goodsCategoryId || it.sku;
     if (commodity) line.goods_category_id = commodity;
+    // EFRIS validates the unit of measure against the registered good (error 2197 on
+    // mismatch). Forward the ERP item's UOM; the middleware defaults to 102 when absent.
+    const uom = it.unitOfMeasure || it.unit_of_measure || it.measureUnit || it.unit;
+    if (uom) line.unit_of_measure = String(uom);
     if (Number(it.discount) > 0) line.discount = Number(it.discount);
     return line;
   });
@@ -138,6 +142,7 @@ export function buildStockPayload(mv: any) {
       path: 'stock-increase',
       body: {
         goodsStockIn: {
+          operationType: '101', // 101 = Increase (required; URA error 2076 if empty)
           stockInType: mv.movementType || '102', // 102 = Local Purchase
           supplierTin: mv.supplierTin || mv.supplier?.tin || '',
           supplierName: mv.supplierName || mv.supplier?.name || '',
@@ -152,6 +157,7 @@ export function buildStockPayload(mv: any) {
     path: 'stock-decrease',
     body: {
       goodsStockIn: {
+        operationType: '102', // 102 = Decrease (required; URA error 2076 if empty)
         adjustType: mv.movementType || '102', // 102 = Damaged
         remarks: mv.remarks || 'Stock decrease via YourBooks Integrator',
       },

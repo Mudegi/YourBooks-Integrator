@@ -99,7 +99,9 @@ router.post('/credit-notes/:id/fiscalize', async (req, res) => {
       currency: cn.currency,
     };
     const { payload, result } = await submitCreditNote(cnData, original.fdn);
-    const fdn = result.fdn || result.fiscal_data?.fdn || '';
+    // T110 returns an application referenceNo (the FDN is only assigned once URA approves
+    // the credit note); surface whichever identifier EFRIS gave us.
+    const fdn = result.fdn || result.fiscal_data?.fdn || result.referenceNo || '';
     const vc = result.verification_code || result.fiscal_data?.verification_code || '';
     const qr = result.qr_code || result.fiscal_data?.qr_code || '';
     await prisma.ingestedCreditNote.update({
