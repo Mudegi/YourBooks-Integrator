@@ -5,6 +5,7 @@ import Invoices from './pages/Invoices';
 import CreditNotes from './pages/CreditNotes';
 import Stock from './pages/Stock';
 import StockTransfer from './pages/StockTransfer';
+import Goods from './pages/Goods';
 import LookupPage from './pages/LookupPage';
 import Settings from './pages/Settings';
 import Placeholder from './pages/Placeholder';
@@ -22,6 +23,7 @@ export default function App() {
             <Route path="/stock-increase" element={<Stock direction="IN" />} />
             <Route path="/stock-decrease" element={<Stock direction="OUT" />} />
             <Route path="/stock-transfer" element={<StockTransfer />} />
+            <Route path="/goods" element={<Goods />} />
             {/* EFRIS read-only lookups (live from the middleware) */}
             <Route path="/efris-invoices" element={<Invoices />} />
             <Route path="/efris-goods" element={<LookupPage name="goods" title="EFRIS Goods & Services" description="Products registered with URA for this TIN." searchParam="search" />} />
