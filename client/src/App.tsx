@@ -6,6 +6,7 @@ import CreditNotes from './pages/CreditNotes';
 import Stock from './pages/Stock';
 import StockTransfer from './pages/StockTransfer';
 import Goods from './pages/Goods';
+import RegistrationDetails from './pages/RegistrationDetails';
 import LookupPage from './pages/LookupPage';
 import Settings from './pages/Settings';
 import Placeholder from './pages/Placeholder';
@@ -31,6 +32,7 @@ export default function App() {
             <Route path="/units-of-measure" element={<LookupPage name="units-of-measure" title="Units of Measure" description="Valid EFRIS unit codes (T115 rateUnit)." />} />
             <Route path="/commodity-categories" element={<LookupPage name="commodity-categories" title="Commodity Categories" description="Commodity classification codes for product registration." />} />
             <Route path="/efris-branches" element={<LookupPage name="branches" title="EFRIS Branches" description="Branch IDs registered with URA (T138). These branch IDs are what stock transfers use as source/destination." />} />
+            <Route path="/registration-details" element={<RegistrationDetails />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="*" element={<Placeholder />} />
           </Routes>

@@ -1,7 +1,7 @@
 import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard, FileText, Package, History, Boxes, TrendingDown,
-  Receipt, ShieldCheck, ArrowRightLeft, Ruler, Layers, Settings, Plug, GitBranch,
+  Receipt, ShieldCheck, ArrowRightLeft, Ruler, Layers, Settings, Plug, GitBranch, BadgeCheck,
 } from 'lucide-react';
 
 const sourceItems = [
@@ -20,6 +20,7 @@ const efrisItems = [
   { name: 'Excise Duties', icon: ShieldCheck, to: '/excise-duties' },
   { name: 'Units of Measure', icon: Ruler, to: '/units-of-measure' },
   { name: 'Commodity Categories', icon: Layers, to: '/commodity-categories' },
+  { name: 'Registration', icon: BadgeCheck, to: '/registration-details' },
 ];
 
 function linkClass({ isActive }: { isActive: boolean }) {
