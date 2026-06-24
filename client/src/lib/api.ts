@@ -26,4 +26,16 @@ export const api = {
   efrisLookup: (name: string, qs = '') => request<{ data: any }>(`/efris/${name}${qs}`),
   dashboard: () => request<any>('/dashboard/stats'),
   lookup: (name: string) => request<any>(`/efris/${name}`),
+  // Retry a failed document by its dashboard `kind` → the matching fiscalize/report endpoint.
+  retry: (kind: string, id: string) => {
+    const map: Record<string, string> = {
+      invoice: `/invoices/${id}/fiscalize`,
+      'credit-note': `/credit-notes/${id}/fiscalize`,
+      stock: `/stock/${id}/report`,
+      'stock-transfer': `/stock-transfers/${id}/report`,
+    };
+    const path = map[kind];
+    if (!path) throw new Error(`Unknown document kind: ${kind}`);
+    return request<any>(path, { method: 'POST' });
+  },
 };

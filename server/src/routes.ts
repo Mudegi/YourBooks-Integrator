@@ -229,15 +229,63 @@ EFRIS_LOOKUPS.forEach((name) => {
 });
 
 // ---- Dashboard --------------------------------------------------------------
-router.get('/dashboard/stats', async (_req, res) => {
+// Status counts for one model.
+async function statusCounts(model: any) {
   const [total, pending, fiscalized, failed] = await Promise.all([
-    prisma.ingestedInvoice.count(),
-    prisma.ingestedInvoice.count({ where: { status: 'PENDING' } }),
-    prisma.ingestedInvoice.count({ where: { status: 'FISCALIZED' } }),
-    prisma.ingestedInvoice.count({ where: { status: 'FAILED' } }),
+    model.count(),
+    model.count({ where: { status: 'PENDING' } }),
+    model.count({ where: { status: 'FISCALIZED' } }),
+    model.count({ where: { status: 'FAILED' } }),
   ]);
-  const recent = await prisma.ingestedInvoice.findMany({ orderBy: { receivedAt: 'desc' }, take: 8 });
-  res.json({ total, pending, fiscalized, failed, recent });
+  return { total, pending, fiscalized, failed };
+}
+
+router.get('/dashboard/stats', async (_req, res) => {
+  const [invoices, creditNotes, stock, transfers] = await Promise.all([
+    statusCounts(prisma.ingestedInvoice),
+    statusCounts(prisma.ingestedCreditNote),
+    statusCounts(prisma.ingestedStockMovement),
+    statusCounts(prisma.ingestedStockTransfer),
+  ]);
+  const byType = { invoices, creditNotes, stock, transfers };
+  const totals = (['total', 'pending', 'fiscalized', 'failed'] as const).reduce(
+    (acc, k) => ({ ...acc, [k]: invoices[k] + creditNotes[k] + stock[k] + transfers[k] }),
+    {} as Record<string, number>,
+  );
+
+  // Combined recent activity across all document types, newest first.
+  const [ri, rc, rs, rt] = await Promise.all([
+    prisma.ingestedInvoice.findMany({ orderBy: { receivedAt: 'desc' }, take: 6 }),
+    prisma.ingestedCreditNote.findMany({ orderBy: { receivedAt: 'desc' }, take: 6 }),
+    prisma.ingestedStockMovement.findMany({ orderBy: { receivedAt: 'desc' }, take: 6 }),
+    prisma.ingestedStockTransfer.findMany({ orderBy: { receivedAt: 'desc' }, take: 6 }),
+  ]);
+  const recent = [
+    ...ri.map((x) => ({ kind: 'invoice', id: x.id, label: x.invoiceNumber, sub: x.customerName || '', status: x.status, ref: x.fdn || '', receivedAt: x.receivedAt })),
+    ...rc.map((x) => ({ kind: 'credit-note', id: x.id, label: x.creditNoteNumber, sub: x.customerName || '', status: x.status, ref: x.fdn || '', receivedAt: x.receivedAt })),
+    ...rs.map((x) => ({ kind: 'stock', id: x.id, label: x.reference, sub: x.direction === 'IN' ? 'Stock in' : 'Stock out', status: x.status, ref: x.efrisReference || '', receivedAt: x.receivedAt })),
+    ...rt.map((x) => ({ kind: 'stock-transfer', id: x.id, label: x.reference, sub: 'Transfer', status: x.status, ref: x.efrisReference || '', receivedAt: x.receivedAt })),
+  ].sort((a, b) => +new Date(b.receivedAt) - +new Date(a.receivedAt)).slice(0, 10);
+
+  // Failed documents, with the error and the kind so the UI can call the right retry endpoint.
+  const [fi, fc, fs, ft] = await Promise.all([
+    prisma.ingestedInvoice.findMany({ where: { status: 'FAILED' }, orderBy: { receivedAt: 'desc' }, take: 20 }),
+    prisma.ingestedCreditNote.findMany({ where: { status: 'FAILED' }, orderBy: { receivedAt: 'desc' }, take: 20 }),
+    prisma.ingestedStockMovement.findMany({ where: { status: 'FAILED' }, orderBy: { receivedAt: 'desc' }, take: 20 }),
+    prisma.ingestedStockTransfer.findMany({ where: { status: 'FAILED' }, orderBy: { receivedAt: 'desc' }, take: 20 }),
+  ]);
+  const failures = [
+    ...fi.map((x) => ({ kind: 'invoice', id: x.id, label: x.invoiceNumber, error: x.efrisError || '', receivedAt: x.receivedAt })),
+    ...fc.map((x) => ({ kind: 'credit-note', id: x.id, label: x.creditNoteNumber, error: x.efrisError || '', receivedAt: x.receivedAt })),
+    ...fs.map((x) => ({ kind: 'stock', id: x.id, label: x.reference, error: x.efrisError || '', receivedAt: x.receivedAt })),
+    ...ft.map((x) => ({ kind: 'stock-transfer', id: x.id, label: x.reference, error: x.efrisError || '', receivedAt: x.receivedAt })),
+  ].sort((a, b) => +new Date(b.receivedAt) - +new Date(a.receivedAt));
+
+  // Back-compat: keep the flat invoice-only fields the old client read.
+  res.json({
+    total: invoices.total, pending: invoices.pending, fiscalized: invoices.fiscalized, failed: invoices.failed,
+    totals, byType, recent, failures,
+  });
 });
 
 // ---- EFRIS lookups (passthrough) -------------------------------------------
