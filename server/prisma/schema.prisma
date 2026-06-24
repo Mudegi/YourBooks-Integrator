@@ -15,6 +15,9 @@ model IntegratorConfig {
   efrisApiKey     String?  @db.Text
   // Shared secret with the ERP webhook endpoint (verifies X-Webhook-Signature)
   webhookSecret   String?  @db.Text
+  // When true, the webhook receiver fiscalizes/reports each document immediately on receipt
+  // (falling back to the manual button if URA rejects it).
+  autoFiscalize   Boolean  @default(false)
   // Display
   companyName     String?
   updatedAt       DateTime @updatedAt

@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { Request, Response } from 'express';
 import { prisma, getConfig } from './prisma';
+import { autoFiscalize } from './fiscalize';
 
 /**
  * Receives signed webhooks from the YourBooks ERP. The ERP signs the raw body with
@@ -29,18 +30,26 @@ export async function handleYourBooksWebhook(req: Request, res: Response) {
   const data = body.data || body.payload || body;
 
   try {
+    let ingested: { kind: string; id: string } | null = null;
     if (type === 'invoice.created') {
-      await ingestInvoice(data);
+      ingested = { kind: 'invoice', id: (await ingestInvoice(data)).id };
     } else if (type === 'credit-note.created') {
-      await ingestCreditNote(data);
+      ingested = { kind: 'credit-note', id: (await ingestCreditNote(data)).id };
     } else if (type === 'stock.increased') {
-      await ingestStock(data, 'IN');
+      ingested = { kind: 'stock', id: (await ingestStock(data, 'IN')).id };
     } else if (type === 'stock.decreased') {
-      await ingestStock(data, 'OUT');
+      ingested = { kind: 'stock', id: (await ingestStock(data, 'OUT')).id };
     } else if (type === 'stock.transferred') {
-      await ingestStockTransfer(data);
+      ingested = { kind: 'stock-transfer', id: (await ingestStockTransfer(data)).id };
     }
-    return res.status(200).json({ received: true, type });
+
+    // Auto-fiscalize on receipt when enabled — fire-and-forget so the ERP gets a fast 200.
+    // Any URA rejection is persisted (FAILED + log) and recoverable via the manual button.
+    const willAutoFiscalize = !!(ingested && config.autoFiscalize);
+    if (ingested && config.autoFiscalize) {
+      autoFiscalize(ingested.kind, ingested.id).catch((e: any) => console.error('[webhook] auto-fiscalize error:', e?.message));
+    }
+    return res.status(200).json({ received: true, type, autoFiscalize: willAutoFiscalize });
   } catch (e: any) {
     console.error('[webhook] ingest error:', e);
     // Return 200 so the ERP doesn't enter a retry storm; the error is logged here.
@@ -62,7 +71,7 @@ async function ingestInvoice(data: any) {
     payload: data,
   };
 
-  await prisma.ingestedInvoice.upsert({
+  return prisma.ingestedInvoice.upsert({
     where: { invoiceNumber },
     update: common,
     create: { invoiceNumber, status: 'PENDING', ...common },
@@ -99,7 +108,7 @@ async function ingestCreditNote(data: any) {
     payload: data,
   };
 
-  await prisma.ingestedCreditNote.upsert({
+  return prisma.ingestedCreditNote.upsert({
     where: { creditNoteNumber },
     update: common,
     create: { creditNoteNumber, status: 'PENDING', ...common },
@@ -119,7 +128,7 @@ async function ingestStock(data: any, direction: 'IN' | 'OUT') {
     payload: data,
   };
 
-  await prisma.ingestedStockMovement.upsert({
+  return prisma.ingestedStockMovement.upsert({
     where: { reference_direction: { reference: String(reference), direction } },
     update: common,
     create: { reference: String(reference), direction, status: 'PENDING', ...common },
@@ -142,7 +151,7 @@ async function ingestStockTransfer(data: any) {
     payload: data,
   };
 
-  await prisma.ingestedStockTransfer.upsert({
+  return prisma.ingestedStockTransfer.upsert({
     where: { reference: String(reference) },
     update: common,
     create: { reference: String(reference), status: 'PENDING', ...common },

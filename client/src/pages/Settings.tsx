@@ -12,7 +12,7 @@ type Meta = {
 };
 
 export default function Settings() {
-  const [form, setForm] = useState<any>({ middlewareUrl: '', companyName: '' });
+  const [form, setForm] = useState<any>({ middlewareUrl: '', companyName: '', autoFiscalize: false });
   const [meta, setMeta] = useState<Meta>({ efrisApiKeySet: false, efrisApiKeyPreview: '', webhookSecretSet: false, webhookSecretPreview: '' });
   // Secrets the user has actually typed this session (dirty-tracked); only these get sent.
   const [secrets, setSecrets] = useState<{ efrisApiKey?: string; webhookSecret?: string }>({});
@@ -22,7 +22,7 @@ export default function Settings() {
   const [copied, setCopied] = useState(false);
 
   const load = () => api.getConfig().then((c: any) => {
-    setForm({ middlewareUrl: c.middlewareUrl || '', companyName: c.companyName || '' });
+    setForm({ middlewareUrl: c.middlewareUrl || '', companyName: c.companyName || '', autoFiscalize: !!c.autoFiscalize });
     setMeta({
       efrisApiKeySet: !!c.efrisApiKeySet, efrisApiKeyPreview: c.efrisApiKeyPreview || '',
       webhookSecretSet: !!c.webhookSecretSet, webhookSecretPreview: c.webhookSecretPreview || '',
@@ -31,14 +31,14 @@ export default function Settings() {
 
   useEffect(() => { load(); }, []);
 
-  const set = (k: string, v: string) => setForm((f: any) => ({ ...f, [k]: v }));
+  const set = (k: string, v: any) => setForm((f: any) => ({ ...f, [k]: v }));
   const setSecret = (k: 'efrisApiKey' | 'webhookSecret', v: string) => setSecrets((s) => ({ ...s, [k]: v }));
 
   const save = async () => {
     setSaving(true); setMsg(null);
     try {
       // Send the plain fields always; include a secret only if the user typed in it.
-      const payload: any = { middlewareUrl: form.middlewareUrl, companyName: form.companyName };
+      const payload: any = { middlewareUrl: form.middlewareUrl, companyName: form.companyName, autoFiscalize: !!form.autoFiscalize };
       if ('efrisApiKey' in secrets) payload.efrisApiKey = secrets.efrisApiKey;
       if ('webhookSecret' in secrets) payload.webhookSecret = secrets.webhookSecret;
       await api.saveConfig(payload);
@@ -118,6 +118,26 @@ export default function Settings() {
           {secretField('webhookSecret', meta.webhookSecretSet, meta.webhookSecretPreview, 'whsec_…')}
         </label>
         <p className="text-xs text-slate-500">Leave blank to keep the current secret. Clear it and save to accept unsigned webhooks (not recommended).</p>
+      </section>
+
+      <section className="neo-outset rounded-3xl p-6">
+        <h2 className="text-xs font-black uppercase tracking-widest text-slate-500 mb-4">Fiscalization</h2>
+        <button
+          type="button"
+          onClick={() => set('autoFiscalize', !form.autoFiscalize)}
+          className="w-full flex items-center justify-between gap-4 text-left"
+        >
+          <div>
+            <div className="text-sm font-bold text-slate-800">Auto-fiscalize on receipt</div>
+            <p className="text-xs text-slate-500 mt-0.5 max-w-md">
+              Fiscalize / report each document the moment its webhook arrives. If URA rejects it,
+              the document is left for you to fix and retry from its page — the manual buttons still work.
+            </p>
+          </div>
+          <span className={`shrink-0 w-12 h-7 rounded-full p-1 transition-colors ${form.autoFiscalize ? 'bg-blue-600' : 'neo-inset-sm bg-slate-300/40'}`}>
+            <span className={`block w-5 h-5 rounded-full bg-white shadow transition-transform ${form.autoFiscalize ? 'translate-x-5' : ''}`} />
+          </span>
+        </button>
       </section>
 
       <div className="flex items-center gap-4">
