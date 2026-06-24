@@ -135,6 +135,36 @@ model IngestedStockTransfer {
   @@index([status])
 }
 
+// The ERP's product catalogue, pushed to the integrator via product.* webhooks. This is the
+// YourBooks (Source) "Goods & Services" list — distinct from the EFRIS-registered goods lookup.
+model IngestedProduct {
+  id               String   @id @default(cuid())
+  sourceId         String   @unique // ERP product id (stable upsert key)
+  sku              String
+  name             String
+  description      String?  @db.Text
+  productType      String?  // GOODS | SERVICE | INVENTORY | NON_INVENTORY (as the ERP sends it)
+  category         String?
+  unitOfMeasure    String?  // UoM code
+  sellingPrice     Decimal  @default(0) @db.Decimal(19, 4)
+  purchasePrice    Decimal  @default(0) @db.Decimal(19, 4)
+  taxable          Boolean  @default(true)
+  defaultTaxRate   Decimal  @default(0) @db.Decimal(5, 2)
+  // EFRIS registration state carried from the ERP (so the user sees what's registered with URA).
+  efrisItemCode    String?
+  efrisProductCode String?
+  haveExciseTax    String?
+  exciseDutyCode   String?
+  isActive         Boolean  @default(true)
+  payload          Json
+
+  receivedAt       DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([isActive])
+  @@index([sku])
+}
+
 // Audit log of EFRIS submissions (request/response).
 model EfrisLog {
   id          String   @id @default(cuid())

@@ -41,6 +41,11 @@ export async function handleYourBooksWebhook(req: Request, res: Response) {
       ingested = { kind: 'stock', id: (await ingestStock(data, 'OUT')).id };
     } else if (type === 'stock.transferred') {
       ingested = { kind: 'stock-transfer', id: (await ingestStockTransfer(data)).id };
+    } else if (type === 'product.created' || type === 'product.updated') {
+      // Catalogue sync — products are a reference list, not fiscalized, so no auto-fiscalize.
+      await ingestProduct(data);
+    } else if (type === 'product.deleted') {
+      await removeProduct(data);
     }
 
     // Auto-fiscalize on receipt when enabled — fire-and-forget so the ERP gets a fast 200.
@@ -156,4 +161,41 @@ async function ingestStockTransfer(data: any) {
     update: common,
     create: { reference: String(reference), status: 'PENDING', ...common },
   });
+}
+
+async function ingestProduct(data: any) {
+  const sourceId = data.sourceId || data.id || data.productId;
+  if (!sourceId) throw new Error('product payload missing id');
+
+  const common = {
+    sku: String(data.sku || data.code || sourceId),
+    name: String(data.name || data.sku || 'Unnamed product'),
+    description: data.description || null,
+    productType: data.productType || data.type || null,
+    category: data.category || null,
+    unitOfMeasure: data.unitOfMeasure || data.uom || data.unit || null,
+    sellingPrice: Number(data.sellingPrice ?? data.price ?? 0),
+    purchasePrice: Number(data.purchasePrice ?? data.cost ?? 0),
+    taxable: data.taxable !== undefined ? !!data.taxable : true,
+    defaultTaxRate: Number(data.defaultTaxRate ?? data.taxRate ?? 0),
+    efrisItemCode: data.efrisItemCode || null,
+    efrisProductCode: data.efrisProductCode || null,
+    haveExciseTax: data.haveExciseTax || null,
+    exciseDutyCode: data.exciseDutyCode || null,
+    isActive: data.isActive !== undefined ? !!data.isActive : true,
+    payload: data,
+  };
+
+  return prisma.ingestedProduct.upsert({
+    where: { sourceId: String(sourceId) },
+    update: common,
+    create: { sourceId: String(sourceId), ...common },
+  });
+}
+
+async function removeProduct(data: any) {
+  const sourceId = data.sourceId || data.id || data.productId;
+  if (!sourceId) return;
+  // Soft-delete: keep the row but flag inactive so historical references still resolve.
+  await prisma.ingestedProduct.updateMany({ where: { sourceId: String(sourceId) }, data: { isActive: false } });
 }

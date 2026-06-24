@@ -121,6 +121,19 @@ router.post('/stock-transfers/:id/report', async (req, res) => {
   }
 });
 
+// ---- ERP products (catalogue pushed from YourBooks via product.* webhooks) --
+router.get('/products', async (req, res) => {
+  const search = (req.query.search as string | undefined)?.trim();
+  const products = await prisma.ingestedProduct.findMany({
+    where: search
+      ? { OR: [{ name: { contains: search } }, { sku: { contains: search } }, { category: { contains: search } }] }
+      : undefined,
+    orderBy: { name: 'asc' },
+    take: 500,
+  });
+  res.json({ products });
+});
+
 // ---- EFRIS read-only lookups (proxied through the middleware) ----------------
 // Forwards the query string (e.g. ?excise_name=beer, ?pageNo=1) to the middleware.
 const EFRIS_LOOKUPS = ['registration-details', 'goods', 'excise-duty', 'units-of-measure', 'commodity-categories', 'branches'];

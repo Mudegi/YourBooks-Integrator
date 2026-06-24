@@ -1,53 +1,39 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../lib/api';
-import { RefreshCw, Search, Package, Wrench } from 'lucide-react';
+import { RefreshCw, Search, Package, Wrench, BadgeCheck } from 'lucide-react';
 
-type Good = {
-  item_code?: string; item_name?: string; is_service?: boolean; description?: string;
-  commodity_category_code?: string; commodity_category_name?: string;
-  unit_of_measure?: string; unit_price?: string; currency?: string;
-  tax_rate?: string; is_zero_rate?: boolean; is_exempt?: boolean;
-  has_excise_tax?: boolean; excise_duty_code?: string; excise_rate?: string;
-  stock?: string; status?: string;
+type Product = {
+  id: string; sourceId: string; sku?: string; name?: string; description?: string;
+  productType?: string; category?: string; unitOfMeasure?: string;
+  sellingPrice?: string; purchasePrice?: string; taxable?: boolean; defaultTaxRate?: string;
+  efrisItemCode?: string; efrisProductCode?: string; haveExciseTax?: string; isActive?: boolean;
 };
 
-// EFRIS goods lookup returns { goods: [...] } (shapes vary); pull the array out robustly.
-function extractGoods(data: any): Good[] {
-  if (!data) return [];
-  if (Array.isArray(data)) return data;
-  for (const k of ['goods', 'items', 'list', 'data', 'records']) if (Array.isArray(data[k])) return data[k];
-  for (const v of Object.values(data)) if (Array.isArray(v)) return v as Good[];
-  return [];
+const isService = (p: Product) => /SERVICE|NON_INVENTORY/i.test(p.productType || '');
+
+// Tax treatment from the ERP product fields.
+function taxBadge(p: Product): { label: string; cls: string } {
+  if (p.haveExciseTax === '101') return { label: 'Excise', cls: 'text-amber-600 bg-amber-500/10' };
+  if (p.taxable === false) return { label: 'Non-taxable', cls: 'text-slate-600 bg-slate-500/10' };
+  const rate = Number(p.defaultTaxRate);
+  if (isFinite(rate) && rate > 0) return { label: `${rate}%`, cls: 'text-emerald-600 bg-emerald-500/10' };
+  return { label: 'Taxable', cls: 'text-emerald-600 bg-emerald-500/10' };
 }
 
-// Tax treatment is mutually exclusive in display order: exempt > zero > excise > standard.
-function taxBadge(g: Good): { label: string; cls: string } {
-  if (g.is_exempt) return { label: 'Exempt', cls: 'text-slate-600 bg-slate-500/10' };
-  if (g.is_zero_rate) return { label: 'Zero-rated', cls: 'text-indigo-600 bg-indigo-500/10' };
-  if (g.has_excise_tax) return { label: 'Excise', cls: 'text-amber-600 bg-amber-500/10' };
-  return { label: 'Standard 18%', cls: 'text-emerald-600 bg-emerald-500/10' };
-}
-
-const fmtPrice = (g: Good) => {
-  const n = Number(g.unit_price);
-  if (!isFinite(n)) return '—';
-  return new Intl.NumberFormat('en-UG', { maximumFractionDigits: 2 }).format(n);
-};
-
-const fmtStock = (s?: string) => {
-  const n = Number(s);
+const fmt = (v?: string) => {
+  const n = Number(v);
   return isFinite(n) ? new Intl.NumberFormat('en-UG', { maximumFractionDigits: 2 }).format(n) : '—';
 };
 
 export default function Goods() {
-  const [goods, setGoods] = useState<Good[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [q, setQ] = useState('');
 
   const load = async () => {
     setLoading(true); setErr(null);
-    try { const { data } = await api.efrisLookup('goods'); setGoods(extractGoods(data)); }
+    try { const { products } = await api.listProducts(); setProducts(products); }
     catch (e: any) { setErr(e.message); }
     finally { setLoading(false); }
   };
@@ -55,24 +41,20 @@ export default function Goods() {
 
   const filtered = useMemo(() => {
     const t = q.trim().toLowerCase();
-    if (!t) return goods;
-    return goods.filter((g) =>
-      [g.item_name, g.item_code, g.commodity_category_name, g.commodity_category_code]
-        .some((v) => String(v || '').toLowerCase().includes(t)));
-  }, [goods, q]);
+    if (!t) return products;
+    return products.filter((p) =>
+      [p.name, p.sku, p.category].some((v) => String(v || '').toLowerCase().includes(t)));
+  }, [products, q]);
 
-  // Summary chips over the full (unfiltered) catalog.
   const counts = useMemo(() => {
-    const c = { total: goods.length, standard: 0, zero: 0, exempt: 0, excise: 0, services: 0 };
-    for (const g of goods) {
-      if (g.is_service) c.services++;
-      if (g.is_exempt) c.exempt++;
-      else if (g.is_zero_rate) c.zero++;
-      else if (g.has_excise_tax) c.excise++;
-      else c.standard++;
+    const c = { total: products.length, active: 0, services: 0, efris: 0 };
+    for (const p of products) {
+      if (p.isActive !== false) c.active++;
+      if (isService(p)) c.services++;
+      if (p.efrisProductCode) c.efris++;
     }
     return c;
-  }, [goods]);
+  }, [products]);
 
   const chip = (label: string, n: number) => (
     <div className="neo-inset-sm rounded-2xl px-3.5 py-2 text-center">
@@ -87,8 +69,8 @@ export default function Goods() {
         <div>
           <h1 className="text-2xl font-black text-slate-900">Goods &amp; Services</h1>
           <p className="text-sm text-slate-500">
-            The product catalogue registered with URA for this TIN. Use the exact <strong>item code</strong> and
-            <strong> name</strong> here when raising invoices, so EFRIS validation passes.
+            Your YourBooks product catalogue, pushed from the ERP. Distinct from <strong>EFRIS → Goods</strong>,
+            which lists what URA has on record.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -97,7 +79,7 @@ export default function Goods() {
             <input
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder="Search name, code, category…"
+              placeholder="Search name, SKU, category…"
               className="bg-transparent text-sm outline-none w-52"
             />
           </div>
@@ -107,24 +89,27 @@ export default function Goods() {
         </div>
       </div>
 
-      {err && <div className="neo-inset rounded-2xl px-4 py-3 text-sm font-semibold text-red-600">{err} — set the middleware URL + API key in Settings.</div>}
+      {err && <div className="neo-inset rounded-2xl px-4 py-3 text-sm font-semibold text-red-600">{err}</div>}
 
-      {!err && goods.length > 0 && (
-        <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
+      {!err && products.length > 0 && (
+        <div className="grid grid-cols-4 gap-3 max-w-xl">
           {chip('Total', counts.total)}
-          {chip('Standard', counts.standard)}
-          {chip('Zero-rated', counts.zero)}
-          {chip('Exempt', counts.exempt)}
-          {chip('Excise', counts.excise)}
+          {chip('Active', counts.active)}
           {chip('Services', counts.services)}
+          {chip('EFRIS reg.', counts.efris)}
         </div>
       )}
 
       <div className="neo-outset rounded-3xl overflow-hidden">
         {loading ? (
           <div className="px-6 py-10 text-center text-slate-400">Loading…</div>
+        ) : products.length === 0 ? (
+          <div className="px-6 py-12 text-center text-slate-400 space-y-1">
+            <p className="font-semibold text-slate-500">No products yet.</p>
+            <p className="text-sm">They appear here as the ERP creates/updates products, or when you run a catalogue sync from YourBooks.</p>
+          </div>
         ) : filtered.length === 0 ? (
-          <div className="px-6 py-10 text-center text-slate-400">{goods.length === 0 ? 'No goods. Click Refresh.' : 'No matches.'}</div>
+          <div className="px-6 py-10 text-center text-slate-400">No matches.</div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -134,36 +119,37 @@ export default function Goods() {
                   <th className="px-5 py-3.5">Category</th>
                   <th className="px-5 py-3.5">Tax</th>
                   <th className="px-5 py-3.5">Unit</th>
-                  <th className="px-5 py-3.5 text-right">Price</th>
-                  <th className="px-5 py-3.5 text-right">Stock</th>
+                  <th className="px-5 py-3.5 text-right">Selling Price</th>
+                  <th className="px-5 py-3.5 text-center">EFRIS</th>
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((g, i) => {
-                  const b = taxBadge(g);
+                {filtered.map((p) => {
+                  const b = taxBadge(p);
                   return (
-                    <tr key={`${g.item_code}-${i}`} className="border-b border-white/40">
+                    <tr key={p.id} className={`border-b border-white/40 ${p.isActive === false ? 'opacity-50' : ''}`}>
                       <td className="px-5 py-3">
                         <div className="flex items-center gap-2.5">
                           <span className="shrink-0 text-slate-400">
-                            {g.is_service ? <Wrench className="w-4 h-4" /> : <Package className="w-4 h-4" />}
+                            {isService(p) ? <Wrench className="w-4 h-4" /> : <Package className="w-4 h-4" />}
                           </span>
                           <div className="min-w-0">
-                            <div className="font-bold text-slate-800 truncate">{g.item_name || '—'}</div>
-                            <div className="text-[11px] text-slate-400 font-mono truncate">{g.item_code || '—'}</div>
+                            <div className="font-bold text-slate-800 truncate">{p.name || '—'}</div>
+                            <div className="text-[11px] text-slate-400 font-mono truncate">{p.sku || '—'}</div>
                           </div>
                         </div>
                       </td>
-                      <td className="px-5 py-3 text-slate-600">
-                        <div className="truncate max-w-[180px]">{g.commodity_category_name || '—'}</div>
-                        <div className="text-[11px] text-slate-400 font-mono">{g.commodity_category_code || ''}</div>
-                      </td>
+                      <td className="px-5 py-3 text-slate-600"><span className="truncate max-w-[160px] inline-block">{p.category || '—'}</span></td>
                       <td className="px-5 py-3">
                         <span className={`inline-block rounded-lg px-2 py-0.5 text-[11px] font-bold ${b.cls}`}>{b.label}</span>
                       </td>
-                      <td className="px-5 py-3 text-slate-600">{g.unit_of_measure || '—'}</td>
-                      <td className="px-5 py-3 text-right font-semibold text-slate-700 tabular-nums">{fmtPrice(g)}</td>
-                      <td className="px-5 py-3 text-right text-slate-600 tabular-nums">{fmtStock(g.stock)}</td>
+                      <td className="px-5 py-3 text-slate-600">{p.unitOfMeasure || '—'}</td>
+                      <td className="px-5 py-3 text-right font-semibold text-slate-700 tabular-nums">{fmt(p.sellingPrice)}</td>
+                      <td className="px-5 py-3 text-center">
+                        {p.efrisProductCode
+                          ? <span title={`EFRIS code ${p.efrisProductCode}`} className="inline-flex items-center gap-1 text-emerald-600 text-xs font-bold"><BadgeCheck className="w-4 h-4" /> Reg.</span>
+                          : <span className="text-slate-300 text-xs">—</span>}
+                      </td>
                     </tr>
                   );
                 })}

@@ -23,6 +23,7 @@ export const api = {
   listStockTransfers: () => request<{ transfers: any[] }>(`/stock-transfers`),
   reportStockTransfer: (id: string, branches?: { sourceBranchId?: string; destinationBranchId?: string; sourceBranchName?: string; destinationBranchName?: string }) =>
     request<any>(`/stock-transfers/${id}/report`, { method: 'POST', body: JSON.stringify(branches || {}) }),
+  listProducts: (search?: string) => request<{ products: any[] }>(`/products${search ? `?search=${encodeURIComponent(search)}` : ''}`),
   efrisLookup: (name: string, qs = '') => request<{ data: any }>(`/efris/${name}${qs}`),
   dashboard: () => request<any>('/dashboard/stats'),
   lookup: (name: string) => request<any>(`/efris/${name}`),
