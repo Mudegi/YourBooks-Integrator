@@ -5,24 +5,39 @@ import { submitInvoice, submitCreditNote, submitStock, submitStockTransfer, efri
 const router = Router();
 
 // ---- Config -----------------------------------------------------------------
+// Secrets (EFRIS API key, webhook signing secret) are never returned in full — only a masked
+// preview of the last 4 chars plus a "set" flag, so the UI can confirm a value exists without
+// exposing it. The real secrets are read server-side from the DB by efris.ts / webhooks.ts.
+function maskSecret(s?: string | null): string {
+  if (!s) return '';
+  return s.length <= 4 ? '••••' : `••••••••${s.slice(-4)}`;
+}
+
 router.get('/config', async (_req, res) => {
   const c = await getConfig();
   res.json({
     middlewareUrl: c.middlewareUrl || '',
-    efrisApiKey: c.efrisApiKey || '',
-    webhookSecret: c.webhookSecret || '',
     companyName: c.companyName || '',
+    efrisApiKeySet: !!c.efrisApiKey,
+    efrisApiKeyPreview: maskSecret(c.efrisApiKey),
+    webhookSecretSet: !!c.webhookSecret,
+    webhookSecretPreview: maskSecret(c.webhookSecret),
   });
 });
 
 router.put('/config', async (req, res) => {
-  const { middlewareUrl, efrisApiKey, webhookSecret, companyName } = req.body || {};
-  const c = await prisma.integratorConfig.upsert({
+  const body = req.body || {};
+  // Only touch a secret when the client explicitly sends that key. Omitting it leaves the
+  // stored value unchanged, so saving the middleware URL never wipes a saved secret.
+  const data: any = { middlewareUrl: body.middlewareUrl, companyName: body.companyName };
+  if ('efrisApiKey' in body) data.efrisApiKey = body.efrisApiKey;
+  if ('webhookSecret' in body) data.webhookSecret = body.webhookSecret;
+  await prisma.integratorConfig.upsert({
     where: { id: 1 },
-    update: { middlewareUrl, efrisApiKey, webhookSecret, companyName },
-    create: { id: 1, middlewareUrl, efrisApiKey, webhookSecret, companyName },
+    update: data,
+    create: { id: 1, ...data },
   });
-  res.json({ success: true, config: c });
+  res.json({ success: true }); // never echo secrets back
 });
 
 // ---- Ingested invoices ------------------------------------------------------

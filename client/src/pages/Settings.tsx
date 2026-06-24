@@ -1,29 +1,81 @@
 import { useEffect, useState } from 'react';
 import { api } from '../lib/api';
-import { Save, Copy, Check } from 'lucide-react';
+import { Save, Copy, Check, Eye, EyeOff } from 'lucide-react';
 
 const WEBHOOK_URL = `${location.protocol}//${location.hostname}:19092/webhooks/yourbooks`;
 
 const fieldCls = 'w-full neo-inset rounded-2xl px-4 py-3 text-sm text-slate-800 bg-transparent outline-none';
 
+type Meta = {
+  efrisApiKeySet: boolean; efrisApiKeyPreview: string;
+  webhookSecretSet: boolean; webhookSecretPreview: string;
+};
+
 export default function Settings() {
-  const [form, setForm] = useState<any>({ middlewareUrl: '', efrisApiKey: '', webhookSecret: '', companyName: '' });
+  const [form, setForm] = useState<any>({ middlewareUrl: '', companyName: '' });
+  const [meta, setMeta] = useState<Meta>({ efrisApiKeySet: false, efrisApiKeyPreview: '', webhookSecretSet: false, webhookSecretPreview: '' });
+  // Secrets the user has actually typed this session (dirty-tracked); only these get sent.
+  const [secrets, setSecrets] = useState<{ efrisApiKey?: string; webhookSecret?: string }>({});
+  const [reveal, setReveal] = useState({ efrisApiKey: false, webhookSecret: false });
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
-  useEffect(() => { api.getConfig().then(setForm).catch(() => {}); }, []);
+  const load = () => api.getConfig().then((c: any) => {
+    setForm({ middlewareUrl: c.middlewareUrl || '', companyName: c.companyName || '' });
+    setMeta({
+      efrisApiKeySet: !!c.efrisApiKeySet, efrisApiKeyPreview: c.efrisApiKeyPreview || '',
+      webhookSecretSet: !!c.webhookSecretSet, webhookSecretPreview: c.webhookSecretPreview || '',
+    });
+  }).catch(() => {});
+
+  useEffect(() => { load(); }, []);
 
   const set = (k: string, v: string) => setForm((f: any) => ({ ...f, [k]: v }));
+  const setSecret = (k: 'efrisApiKey' | 'webhookSecret', v: string) => setSecrets((s) => ({ ...s, [k]: v }));
 
   const save = async () => {
     setSaving(true); setMsg(null);
-    try { await api.saveConfig(form); setMsg('Settings saved.'); }
-    catch (e: any) { setMsg(e.message); }
+    try {
+      // Send the plain fields always; include a secret only if the user typed in it.
+      const payload: any = { middlewareUrl: form.middlewareUrl, companyName: form.companyName };
+      if ('efrisApiKey' in secrets) payload.efrisApiKey = secrets.efrisApiKey;
+      if ('webhookSecret' in secrets) payload.webhookSecret = secrets.webhookSecret;
+      await api.saveConfig(payload);
+      setSecrets({}); // clear typed secrets; reload to refresh the masked previews
+      await load();
+      setMsg('Settings saved.');
+    } catch (e: any) { setMsg(e.message); }
     finally { setSaving(false); }
   };
 
   const copy = () => { navigator.clipboard.writeText(WEBHOOK_URL); setCopied(true); setTimeout(() => setCopied(false), 1500); };
+
+  // A masked secret input: empty until the user types; placeholder shows the stored preview.
+  const secretField = (key: 'efrisApiKey' | 'webhookSecret', isSet: boolean, preview: string, emptyHint: string) => {
+    const placeholder = isSet ? `${preview} — leave blank to keep` : emptyHint;
+    return (
+      <div className="relative">
+        <input
+          type={reveal[key] ? 'text' : 'password'}
+          className={`${fieldCls} pr-11`}
+          value={secrets[key] ?? ''}
+          onChange={(e) => setSecret(key, e.target.value)}
+          placeholder={placeholder}
+          autoComplete="off"
+        />
+        <button
+          type="button"
+          onClick={() => setReveal((r) => ({ ...r, [key]: !r[key] }))}
+          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+          tabIndex={-1}
+          title={reveal[key] ? 'Hide' : 'Show'}
+        >
+          {reveal[key] ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+        </button>
+      </div>
+    );
+  };
 
   return (
     <div className="space-y-7">
@@ -41,7 +93,7 @@ export default function Settings() {
           </label>
           <label className="space-y-2 block">
             <span className="text-[11px] font-black uppercase tracking-wider text-slate-400">EFRIS API Key</span>
-            <input className={fieldCls} value={form.efrisApiKey || ''} onChange={(e) => set('efrisApiKey', e.target.value)} placeholder="X-API-Key" />
+            {secretField('efrisApiKey', meta.efrisApiKeySet, meta.efrisApiKeyPreview, 'X-API-Key')}
           </label>
         </div>
         <label className="space-y-2 block">
@@ -53,7 +105,7 @@ export default function Settings() {
       <section className="neo-outset rounded-3xl p-6 space-y-5">
         <h2 className="text-xs font-black uppercase tracking-widest text-slate-500">YourBooks ERP Webhook</h2>
         <div className="space-y-2">
-          <span className="text-[11px] font-black uppercase tracking-wider text-slate-400">Webhook URL (register this in the ERP → Settings → Integrations)</span>
+          <span className="text-[11px] font-black uppercase tracking-wider text-slate-400">Webhook URL (register this in the ERP → Integrations → Webhooks)</span>
           <div className="flex items-center gap-3">
             <code className="flex-1 neo-inset rounded-2xl px-4 py-3 text-xs font-mono text-slate-700 break-all">{WEBHOOK_URL}</code>
             <button onClick={copy} className="shrink-0 neo-outset-sm rounded-2xl px-4 py-3 text-xs font-bold text-slate-700 hover:neo-inset-sm transition-all flex items-center gap-1.5">
@@ -63,9 +115,9 @@ export default function Settings() {
         </div>
         <label className="space-y-2 block">
           <span className="text-[11px] font-black uppercase tracking-wider text-slate-400">Webhook Signing Secret (must match the ERP endpoint's secret)</span>
-          <input className={fieldCls} value={form.webhookSecret || ''} onChange={(e) => set('webhookSecret', e.target.value)} placeholder="whsec_…" />
+          {secretField('webhookSecret', meta.webhookSecretSet, meta.webhookSecretPreview, 'whsec_…')}
         </label>
-        <p className="text-xs text-slate-500">Leave the secret blank to accept unsigned webhooks (not recommended).</p>
+        <p className="text-xs text-slate-500">Leave blank to keep the current secret. Clear it and save to accept unsigned webhooks (not recommended).</p>
       </section>
 
       <div className="flex items-center gap-4">
