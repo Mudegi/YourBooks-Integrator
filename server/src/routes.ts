@@ -161,11 +161,28 @@ router.post('/stock-transfers/:id/report', async (req, res) => {
   if (!t) return res.status(404).json({ error: 'Stock transfer not found' });
   if (t.status === 'FISCALIZED') return res.json({ success: true, alreadyReported: true });
 
+  // The user can pick source/destination branches in the integrator (from the EFRIS Branches
+  // lookup) when the ERP didn't supply linked branch IDs. Persist the chosen IDs before reporting.
+  const { sourceBranchId, destinationBranchId, sourceBranchName, destinationBranchName } = req.body || {};
+  if (sourceBranchId || destinationBranchId) {
+    await prisma.ingestedStockTransfer.update({
+      where: { id: t.id },
+      data: {
+        sourceBranchId: sourceBranchId || t.sourceBranchId,
+        destinationBranchId: destinationBranchId || t.destinationBranchId,
+        sourceBranchName: sourceBranchName || t.sourceBranchName,
+        destinationBranchName: destinationBranchName || t.destinationBranchName,
+      },
+    });
+  }
+  const finalSourceId = sourceBranchId || t.sourceBranchId;
+  const finalDestId = destinationBranchId || t.destinationBranchId;
+
   try {
     const data = {
       ...(t.payload as any),
-      sourceBranchId: t.sourceBranchId,
-      destinationBranchId: t.destinationBranchId,
+      sourceBranchId: finalSourceId,
+      destinationBranchId: finalDestId,
       transferTypeCode: t.transferTypeCode,
       remarks: t.remarks,
     };

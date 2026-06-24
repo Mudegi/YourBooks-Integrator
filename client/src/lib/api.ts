@@ -21,7 +21,8 @@ export const api = {
   listStock: (direction: 'IN' | 'OUT') => request<{ movements: any[] }>(`/stock?direction=${direction}`),
   reportStock: (id: string) => request<any>(`/stock/${id}/report`, { method: 'POST' }),
   listStockTransfers: () => request<{ transfers: any[] }>(`/stock-transfers`),
-  reportStockTransfer: (id: string) => request<any>(`/stock-transfers/${id}/report`, { method: 'POST' }),
+  reportStockTransfer: (id: string, branches?: { sourceBranchId?: string; destinationBranchId?: string; sourceBranchName?: string; destinationBranchName?: string }) =>
+    request<any>(`/stock-transfers/${id}/report`, { method: 'POST', body: JSON.stringify(branches || {}) }),
   efrisLookup: (name: string, qs = '') => request<{ data: any }>(`/efris/${name}${qs}`),
   dashboard: () => request<any>('/dashboard/stats'),
   lookup: (name: string) => request<any>(`/efris/${name}`),

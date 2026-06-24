@@ -24,6 +24,61 @@ never pulls documents from the ERP. The two sidebar groups reflect this:
 The "This section is part of a later phase…" **Placeholder** is the catch-all for any route
 not yet wired. The only one still on it is `/goods` (YourBooks source products).
 
+## ⚠️ CRITICAL: the ERP has TWO separate webhook systems — use the right one
+This is the #1 gotcha and the reason "I created an invoice but nothing shows in the integrator."
+
+| | **Integration** (legacy) | **WebhookEndpoint** (the live one) ✅ |
+|---|---|---|
+| Prisma models | `Integration` + `Webhook` (schema ~L414/443) | `WebhookEndpoint` + `WebhookDelivery` (schema ~L4980/5002) |
+| ERP UI page | `…/settings/integrations/[id]` (the URL with `apiKey/apiSecret/webhookUrl` fields, sync logs) | `…/integrations/webhooks` (Register endpoint + event checkboxes + deliveries log) |
+| API base | `/api/[orgSlug]/integrations/[id]` | `/api/[orgSlug]/integrations/webhooks` |
+| Driven by `emitWebhookEvent`? | **NO** — purely a CRUD/sync record | **YES** — `dispatcher.ts` reads `prisma.webhookEndpoint.findMany` |
+
+**`emitWebhookEvent` (lib/webhooks/dispatcher.ts) ONLY looks at `WebhookEndpoint` rows.**
+If you register the integrator under **Settings → Integrations** (the `Integration` model), the
+dispatcher never sees it and **zero deliveries are created** — exactly the symptom reported.
+
+➡️ **Register the integrator at `http://localhost:3000/<orgSlug>/integrations/webhooks`** (NOT
+Settings → Integrations). There: "Register endpoint" → URL `http://localhost:19092/webhooks/yourbooks`,
+tick the events (invoice.created, credit-note.created, stock.increased/decreased/transferred),
+copy the generated `whsec_…` secret, and paste it into the **integrator Settings → Webhook
+Signing Secret** so the HMAC matches.
+
+### Delivery mechanics (so you can debug)
+- `emitWebhookEvent` persists one `WebhookDelivery` per subscribed endpoint, then fires an
+  **immediate un-awaited** `processDueDeliveries` — so a correctly-registered endpoint receives
+  the POST within the same request (no cron needed for the first attempt).
+- Retries (5m/30m/2h, 4 attempts) and the 48h auto-disable need a cron pointed at
+  `POST /api/[orgSlug]/integrations/webhooks/process` (or the global sweep). Not required for live testing.
+- Inspect outcomes in the ERP **Deliveries** log on the webhooks page (status code, response body) —
+  this is the fastest way to see 401 (secret mismatch), connection-refused (integrator not running),
+  or 500 (integrator DB table missing → run `prisma db push`).
+- Integrator receiver: `server/src/server.ts` mounts `POST /webhooks/yourbooks`, captures `rawBody`
+  for HMAC, and `webhooks.ts` reads the `X-Webhook-Event` header + `body.data` envelope. Verified correct.
+
+## Emit coverage (which ERP actions fire which event)
+| Event | Emitting route(s) |
+|---|---|
+| `invoice.created` | `app/api/orgs/[orgSlug]/invoices/route.ts` (POST) — the live "new-intelligent" invoice path |
+| `credit-note.created` | `app/api/orgs/[orgSlug]/credit-notes/route.ts` |
+| `stock.increased` | **`app/api/orgs/[orgSlug]/accounts-payable/bills/route.ts` (POST)** — a **Bill** (AP → Bills → New) is THE EFRIS stock-in document; the bill updates inventory and now emits. *(Also still emits from `…/warehouse/grn`, a committed earlier path; `inventory/goods-receipts` emit was added then reverted this session to avoid double-reporting.)* |
+| `stock.decreased` | `app/api/[orgSlug]/inventory/adjustments/route.ts` — Inventory → Adjustments |
+| `stock.transferred` | `app/api/orgs/[orgSlug]/inventory/transfers/route.ts` (POST) |
+
+> **Stock-in = a vendor Bill** (`/accounts-payable/bills/new`), per the ERP owner. The bill route
+> converts package units → base units (× `unitRatio`) and the emit replicates that so EFRIS gets
+> base-unit quantities. Stock-out = an **Adjustment** (`/inventory/adjustments`).
+
+## Credentials audit (this session)
+- **No hardcoded credentials in integrator source** (`server/src`, `client/src`). All secrets are
+  read from `process.env` / the DB config row set via Settings.
+- The only plaintext secret on disk is `server/.env` → `DATABASE_URL="mysql://root:kian%40256@localhost:3308/yourbooks_integrator"`.
+  This is **gitignored** (correct), but it is the real DB password in cleartext — rotate it / use a
+  dedicated DB user for production rather than `root`.
+- Minor exposure: integrator `GET /api/v1/config` returns `efrisApiKey` + `webhookSecret` in cleartext
+  and Settings renders them in plain `<input>` (not masked). Fine for localhost/single-user; mask
+  before any multi-user/hosted deployment.
+
 ## Data flow
 ERP event (signed POST, `X-Webhook-Signature: sha256=HMAC(body, secret)`) →
 `server /webhooks/yourbooks` (verifies HMAC) → store in local DB → user clicks
@@ -43,9 +98,14 @@ original invoice's FDN from `IngestedInvoice`.
   - `IngestedStockTransfer` model; `buildStockTransferPayload`/`submitStockTransfer` in efris.ts
     (posts to `/stock-transfer`, **identical payload to the ERP's own `reportStockTransfer`**).
   - Webhook ingest `stock.transferred`; routes `GET /stock-transfers` + `POST /stock-transfers/:id/report`.
-  - `StockTransfer` page under the **YourBooks (Source)** group at `/stock-transfer` (shows branch
-    route, flags unlinked branches, disables Report until both EFRIS branch IDs are present).
-  - **Branches** lookup added to EFRIS group → `/efris-branches` (these branch IDs are what transfers use).
+  - `StockTransfer` page under the **YourBooks (Source)** group at `/stock-transfer`. It loads the
+    EFRIS **Branches** lookup and renders **From/To branch dropdowns** per pending transfer, so the
+    user picks source/destination even when the ERP branches aren't linked (`efrisBranchId` null).
+    Report is disabled until both are chosen. The chosen IDs+names are sent in the report POST body
+    (`server/src/routes.ts` persists them on the `IngestedStockTransfer` before submitting T139).
+  - **Branches** lookup added to EFRIS group → `/efris-branches` (these branch IDs feed the dropdowns).
+    `extractBranches()` in the page normalizes the lookup payload to `{id,name}` across shapes
+    (`branchId/branchName`, `id/name`, etc.).
 
 ### Key files (server/src)
 - `webhooks.ts` — HMAC verify + ingest (`invoice.created`, `credit-note.created`,
@@ -68,7 +128,8 @@ Webhook **events + enriched emits** so the integrator can build EFRIS payloads i
   `stock.increased`, `stock.decreased`, **`stock.transferred`**
 - Emits (FULL payload: customer + items w/ SKUs, reason, supplier, branch efrisBranchIds):
   `invoices/route.ts`, `credit-notes/route.ts`, `warehouse/grn/route.ts`,
-  `inventory/adjustments/route.ts`, **`inventory/transfers/route.ts`** (POST)
+  `inventory/adjustments/route.ts`, **`inventory/transfers/route.ts`** (POST),
+  **`inventory/goods-receipts/route.ts`** (POST — added this session for stock-in parity)
 - Branch IDs come from `Branch.efrisBranchId` (linked in Settings → Branches → Fetch/Auto-link).
 - **Committed:** Phases 1–3 ERP work is in commit `d185a58`. **The `stock.transferred` event +
   transfers emit are NOT committed yet** (uncommitted in the YourBookSuit working tree).
@@ -76,10 +137,15 @@ Webhook **events + enriched emits** so the integrator can build EFRIS payloads i
 ## ⚠️ Uncommitted / pending actions to continue with
 1. **`cd "D:\YourBooks Integrator\server" && npx prisma db push`** — creates the new
    `IngestedStockTransfer` table. Required before Stock Transfer works.
-2. **Commit both repos** (not yet committed):
+2. **Register the integrator in the ERP at `/<orgSlug>/integrations/webhooks`** (the WebhookEndpoint
+   page — see the CRITICAL section above), copy the `whsec_…` secret into integrator Settings,
+   then re-create an invoice/stock-in and confirm it lands. This — not a code bug — is why nothing
+   appeared before (it was registered under the wrong system / not at all).
+3. **Commit both repos** (not yet committed):
    - YourBooks-Integrator: schema + efris.ts + webhooks.ts + routes.ts + api.ts + App.tsx +
      Sidebar.tsx + StockTransfer.tsx + this HANDOFF.
-   - YourBookSuit: `lib/webhooks/events.ts` + `app/api/orgs/[orgSlug]/inventory/transfers/route.ts`.
+   - YourBookSuit: `lib/webhooks/events.ts`, `app/api/orgs/[orgSlug]/inventory/transfers/route.ts`,
+     and `app/api/orgs/[orgSlug]/accounts-payable/bills/route.ts` (stock-in emit on Bill create).
 
 ## How to run
 ```bash
