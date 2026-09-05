@@ -47,12 +47,12 @@ export function buildInvoicePayload(invoice: any) {
       unit_price: Number(it.unitPrice ?? it.price ?? 0),
       tax_rate: it.taxExempt ? -1 : Number(it.taxRate ?? 18),
     };
-    // goodsCategoryId is a genuine alias for the commodity category. The SKU was
-    // NOT — it is an internal stock code, never a URA category, and using it filed
-    // the line under a tax category that did not exist. The commodity code decides
-    // the item's tax, so an absent one is left absent: EFRIS then applies the
-    // category the product was registered with under T130, which is correct.
-    const commodity = it.commodityCode || it.goodsCategoryId;
+    // Read from whichever field this sender keeps it in. Some ERPs hold the URA
+    // commodity code in goodsCategoryId, others in the SKU — a business whose
+    // stock codes are commodity codes is a normal arrangement, not a mistake.
+    // Reading a real value from a second place is not the same as inventing one,
+    // so the alias stays: dropping it discards data the sender did supply.
+    const commodity = it.commodityCode || it.goodsCategoryId || it.sku;
     if (commodity) line.goods_category_id = commodity;
     // EFRIS validates the unit of measure against the registered good (error 2197 on
     // mismatch). Forward the ERP item's UOM; the middleware defaults to 102 when absent.
@@ -99,12 +99,12 @@ export async function submitInvoice(invoice: any): Promise<any> {
 export function buildCreditNotePayload(cn: any, originalFdn: string) {
   const customer = cn.customer || {};
   const items = (cn.items || []).map((it: any) => {
-    // goodsCategoryId is a genuine alias for the commodity category. The SKU was
-    // NOT — it is an internal stock code, never a URA category, and using it filed
-    // the line under a tax category that did not exist. The commodity code decides
-    // the item's tax, so an absent one is left absent: EFRIS then applies the
-    // category the product was registered with under T130, which is correct.
-    const commodity = it.commodityCode || it.goodsCategoryId;
+    // Read from whichever field this sender keeps it in. Some ERPs hold the URA
+    // commodity code in goodsCategoryId, others in the SKU — a business whose
+    // stock codes are commodity codes is a normal arrangement, not a mistake.
+    // Reading a real value from a second place is not the same as inventing one,
+    // so the alias stays: dropping it discards data the sender did supply.
+    const commodity = it.commodityCode || it.goodsCategoryId || it.sku;
     const line: Record<string, any> = {
       item_name: it.description || it.name || 'Returned Item',
       item_code: it.itemCode || it.description || it.name || 'ITEM',
