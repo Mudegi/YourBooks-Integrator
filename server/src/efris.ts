@@ -6,10 +6,27 @@ import { getConfig } from './prisma';
  * YourBooks ERP's own EfrisService does, but from outside the ERP.
  */
 
+/**
+ * Turns whatever the operator typed in Settings into the endpoint root.
+ *
+ * Two different middlewares are in use, and they mount the same endpoints under
+ * different prefixes: the Python platform on `/api/external/efris`, the gateway
+ * on `/api/efris`. This used to append the first unconditionally, so a URL of
+ * `https://efrisgateway.com` became `https://efrisgateway.com/api/external/efris`
+ * and every call came back 404 with nothing to suggest the path was at fault —
+ * which is exactly how product registration broke in production. A URL already
+ * ending in `/api/efris` fared worse still, gaining a second prefix after it.
+ *
+ * A prefix that is already there is now left alone. Only a bare host gets one
+ * appended, and the gateway accepts that prefix as an alias, so the default
+ * works against either middleware.
+ */
+const EFRIS_PREFIXES = ['/api/external/efris', '/api/efris'];
+
 function normalizeBaseUrl(url: string): string {
-  let base = url.replace(/\/$/, '');
-  if (!base.includes('/api/external/efris')) base += '/api/external/efris';
-  return base;
+  const base = url.trim().replace(/\/+$/, '');
+  if (EFRIS_PREFIXES.some((prefix) => base.endsWith(prefix))) return base;
+  return base + EFRIS_PREFIXES[0];
 }
 
 export async function getConnection(): Promise<{ baseUrl: string; apiKey: string }> {
